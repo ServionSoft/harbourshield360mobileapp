@@ -56,6 +56,7 @@ export const env = {
 
   mobilePhotos: {
     list: 'mobile/photos',
+    delete: (id: number | string) => `mobile/photos/${id}`,
   },
 
   mobileSchedule: {

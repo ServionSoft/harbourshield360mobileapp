@@ -1,6 +1,6 @@
 import { toastAlert } from '../../utils/toastAlert';
 import React, { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Dimensions, Image, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Dimensions, Image, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { DrawerActions, useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
@@ -37,20 +37,29 @@ const PREVIEW_IMAGE_MAX_H = Math.round(Dimensions.get('window').height * 0.68);
 const VIEW_ALL_SHEET_H_PAD = 16 * 2;
 const VIEW_ALL_COL_GAP = 10;
 
-type MediaStripItem = { id: string; uri: string; jobName: string };
+type MediaStripItem = { id: string; uri: string; jobName: string; photoId: string };
 
-type PhotoPreviewState = { uri: string; jobName: string; kind: 'Before' | 'After' };
+type PhotoPreviewState = {
+  uri: string;
+  jobName: string;
+  kind: 'Before' | 'After';
+  photoId: string;
+};
 
 function MediaHorizontalStrip({
   items,
   kindLabel,
   emptyMessage,
   onOpenItem,
+  onDeleteItem,
+  deletingId,
 }: {
   items: MediaStripItem[];
   kindLabel: 'Before' | 'After';
   emptyMessage: string;
   onOpenItem: (item: MediaStripItem, kind: 'Before' | 'After') => void;
+  onDeleteItem: (item: MediaStripItem) => void;
+  deletingId: string | null;
 }): React.JSX.Element {
   if (items.length === 0) {
     return (
@@ -67,31 +76,48 @@ function MediaHorizontalStrip({
       nestedScrollEnabled
       contentContainerStyle={styles.hStripContent}
     >
-      {items.map((item) => (
-        <Pressable
-          key={item.id}
-          style={({ pressed }) => [styles.mediaCardH, pressed && styles.dim]}
-          onPress={() => onOpenItem(item, kindLabel)}
-          accessibilityRole="button"
-          accessibilityLabel={`Open ${kindLabel} photo for ${item.jobName}`}
-        >
-          <View style={styles.mediaImageWrap}>
-            <Image source={{ uri: item.uri }} style={styles.mediaImageH} resizeMode="cover" />
-            <View style={styles.mediaOverlay} pointerEvents="none">
-              <Text style={styles.mediaOverlayIcon}>📁</Text>
-              <Text style={styles.mediaOverlayCount}>1</Text>
+      {items.map((item) => {
+        const isDeleting = deletingId === item.photoId;
+        return (
+          <View key={item.id} style={styles.mediaCardH}>
+            <Pressable
+              style={({ pressed }) => [styles.mediaImagePress, pressed && styles.dim]}
+              onPress={() => onOpenItem(item, kindLabel)}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${kindLabel} photo for ${item.jobName}`}
+            >
+              <View style={styles.mediaImageWrap}>
+                <Image source={{ uri: item.uri }} style={styles.mediaImageH} resizeMode="cover" />
+                <View style={styles.mediaOverlay} pointerEvents="none">
+                  <Text style={styles.mediaOverlayIcon}>📁</Text>
+                  <Text style={styles.mediaOverlayCount}>1</Text>
+                </View>
+              </View>
+            </Pressable>
+            <View style={styles.mediaMetaH}>
+              <Text style={styles.mediaJobNameH} numberOfLines={2}>
+                {item.jobName}
+              </Text>
+              <Text style={styles.mediaSubLine}>
+                1 Photo · {kindLabel}
+              </Text>
+              <Pressable
+                style={({ pressed }) => [styles.deleteBtn, (pressed || isDeleting) && styles.dim]}
+                onPress={() => onDeleteItem(item)}
+                disabled={isDeleting}
+                accessibilityRole="button"
+                accessibilityLabel={`Delete ${kindLabel} photo`}
+              >
+                {isDeleting ? (
+                  <ActivityIndicator size="small" color="#B42318" />
+                ) : (
+                  <Text style={styles.deleteBtnText}>Delete</Text>
+                )}
+              </Pressable>
             </View>
           </View>
-          <View style={styles.mediaMetaH}>
-            <Text style={styles.mediaJobNameH} numberOfLines={2}>
-              {item.jobName}
-            </Text>
-            <Text style={styles.mediaSubLine}>
-              1 Photo · {kindLabel}
-            </Text>
-          </View>
-        </Pressable>
-      ))}
+        );
+      })}
     </ScrollView>
   );
 }
@@ -114,6 +140,7 @@ export function PhotosMediaScreen(): React.JSX.Element {
   const [modalJobPickerOpen, setModalJobPickerOpen] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<PhotoPreviewState | null>(null);
   const [viewAllKind, setViewAllKind] = useState<'before' | 'after' | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [mediaFilter, setMediaFilter] = useState<string | null>(null);
@@ -159,7 +186,12 @@ export function PhotosMediaScreen(): React.JSX.Element {
   }, []);
 
   const openPhotoFromStrip = useCallback((item: MediaStripItem, kind: 'Before' | 'After') => {
-    setPhotoPreview({ uri: item.uri, jobName: item.jobName, kind });
+    setPhotoPreview({
+      uri: item.uri,
+      jobName: item.jobName,
+      kind,
+      photoId: item.photoId,
+    });
   }, []);
 
   const closeViewAll = useCallback(() => {
@@ -172,6 +204,61 @@ export function PhotosMediaScreen(): React.JSX.Element {
       openPhotoFromStrip(item, kind === 'before' ? 'Before' : 'After');
     },
     [openPhotoFromStrip],
+  );
+
+  const removePhotoLocally = useCallback((photoId: string) => {
+    setJobsMedia((prev) =>
+      prev
+        .map((job) => ({
+          ...job,
+          before: job.before.filter((photo) => photo.id !== photoId),
+          after: job.after.filter((photo) => photo.id !== photoId),
+        }))
+        .filter((job) => job.before.length > 0 || job.after.length > 0),
+    );
+  }, []);
+
+  const deletePhoto = useCallback(
+    async (photoId: string) => {
+      if (!photoId || photoId.startsWith('temp-') || deletingId) {
+        if (photoId.startsWith('temp-')) {
+          toastAlert('Photos & Media', 'Refresh the list, then delete this photo.');
+        }
+        return;
+      }
+
+      setDeletingId(photoId);
+      try {
+        await portalService.deletePhotoMedia(photoId);
+        removePhotoLocally(photoId);
+        setPhotoPreview((prev) => (prev?.photoId === photoId ? null : prev));
+        toastAlert('Photos & Media', 'Photo deleted.');
+      } catch (error) {
+        toastAlert(
+          'Photos & Media',
+          error instanceof Error ? error.message : 'Unable to delete photo.',
+        );
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [deletingId, removePhotoLocally],
+  );
+
+  const confirmDeletePhoto = useCallback(
+    (item: MediaStripItem) => {
+      Alert.alert('Delete photo', 'Remove this photo from the gallery?', [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void deletePhoto(item.photoId);
+          },
+        },
+      ]);
+    },
+    [deletePhoto],
   );
 
   const selectedLabel =
@@ -195,10 +282,20 @@ export function PhotosMediaScreen(): React.JSX.Element {
   const showAfterSection = mediaFilter !== 'before';
 
   const beforeImages = scopedMedia.flatMap((job) =>
-    job.before.map((uri, idx) => ({ id: `before-${job.id}-${idx}`, uri, jobName: job.jobName })),
+    job.before.map((photo) => ({
+      id: `before-${job.id}-${photo.id}`,
+      photoId: photo.id,
+      uri: photo.uri,
+      jobName: job.jobName,
+    })),
   );
   const afterImages = scopedMedia.flatMap((job) =>
-    job.after.map((uri, idx) => ({ id: `after-${job.id}-${idx}`, uri, jobName: job.jobName })),
+    job.after.map((photo) => ({
+      id: `after-${job.id}-${photo.id}`,
+      photoId: photo.id,
+      uri: photo.uri,
+      jobName: job.jobName,
+    })),
   );
 
   const viewAllTileW = useMemo(() => {
@@ -312,6 +409,7 @@ export function PhotosMediaScreen(): React.JSX.Element {
       }
       toastAlert('Photos & Media', 'Photo uploaded successfully.');
       closeUploadModal();
+      await loadData(true);
     } catch (error) {
       toastAlert('Photos & Media', error instanceof Error ? error.message : 'Upload failed.');
     } finally {
@@ -319,6 +417,7 @@ export function PhotosMediaScreen(): React.JSX.Element {
     }
   }, [
     closeUploadModal,
+    loadData,
     uploadJobId,
     uploadJobsList,
     uploadPhotoKind,
@@ -475,6 +574,8 @@ export function PhotosMediaScreen(): React.JSX.Element {
             kindLabel="Before"
             emptyMessage="No before images for the selected project."
             onOpenItem={openPhotoFromStrip}
+            onDeleteItem={confirmDeletePhoto}
+            deletingId={deletingId}
           />
         </View>
         ) : null}
@@ -502,6 +603,8 @@ export function PhotosMediaScreen(): React.JSX.Element {
             kindLabel="After"
             emptyMessage="No after images for the selected project."
             onOpenItem={openPhotoFromStrip}
+            onDeleteItem={confirmDeletePhoto}
+            deletingId={deletingId}
           />
         </View>
         ) : null}
@@ -619,20 +722,37 @@ export function PhotosMediaScreen(): React.JSX.Element {
               style={{ maxHeight: viewAllScrollMaxH }}
               contentContainerStyle={styles.viewAllGrid}
             >
-              {viewAllItems.map((item) => (
-                <Pressable
-                  key={item.id}
-                  style={({ pressed }) => [styles.viewAllTile, { width: viewAllTileW }, pressed && styles.dim]}
-                  onPress={() => viewAllKind && openPhotoFromViewAll(item, viewAllKind)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Open ${viewAllKind === 'before' ? 'before' : 'after'} photo for ${item.jobName}`}
-                >
-                  <Image source={{ uri: item.uri }} style={styles.viewAllThumb} resizeMode="cover" />
-                  <Text style={styles.viewAllJobName} numberOfLines={2}>
-                    {item.jobName}
-                  </Text>
-                </Pressable>
-              ))}
+              {viewAllItems.map((item) => {
+                const isDeleting = deletingId === item.photoId;
+                return (
+                  <View key={item.id} style={[styles.viewAllTile, { width: viewAllTileW }]}>
+                    <Pressable
+                      style={({ pressed }) => [pressed && styles.dim]}
+                      onPress={() => viewAllKind && openPhotoFromViewAll(item, viewAllKind)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open ${viewAllKind === 'before' ? 'before' : 'after'} photo for ${item.jobName}`}
+                    >
+                      <Image source={{ uri: item.uri }} style={styles.viewAllThumb} resizeMode="cover" />
+                      <Text style={styles.viewAllJobName} numberOfLines={2}>
+                        {item.jobName}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [styles.deleteBtn, (pressed || isDeleting) && styles.dim]}
+                      onPress={() => confirmDeletePhoto(item)}
+                      disabled={isDeleting}
+                      accessibilityRole="button"
+                      accessibilityLabel="Delete photo"
+                    >
+                      {isDeleting ? (
+                        <ActivityIndicator size="small" color="#B42318" />
+                      ) : (
+                        <Text style={styles.deleteBtnText}>Delete</Text>
+                      )}
+                    </Pressable>
+                  </View>
+                );
+              })}
             </ScrollView>
           </View>
         </View>
@@ -649,14 +769,41 @@ export function PhotosMediaScreen(): React.JSX.Element {
                 </Text>
                 <Text style={styles.photoPreviewKind}>{photoPreview?.kind} photo</Text>
               </View>
-              <Pressable
-                onPress={closePhotoPreview}
-                hitSlop={10}
-                accessibilityRole="button"
-                accessibilityLabel="Close"
-              >
-                <Text style={styles.photoPreviewClose}>✕</Text>
-              </Pressable>
+              <View style={styles.photoPreviewActions}>
+                {photoPreview ? (
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.previewDeleteBtn,
+                      (pressed || deletingId === photoPreview.photoId) && styles.dim,
+                    ]}
+                    onPress={() =>
+                      confirmDeletePhoto({
+                        id: photoPreview.photoId,
+                        photoId: photoPreview.photoId,
+                        uri: photoPreview.uri,
+                        jobName: photoPreview.jobName,
+                      })
+                    }
+                    disabled={deletingId === photoPreview.photoId}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete photo"
+                  >
+                    {deletingId === photoPreview.photoId ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.previewDeleteBtnText}>Delete</Text>
+                    )}
+                  </Pressable>
+                ) : null}
+                <Pressable
+                  onPress={closePhotoPreview}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close"
+                >
+                  <Text style={styles.photoPreviewClose}>✕</Text>
+                </Pressable>
+              </View>
             </View>
             {photoPreview ? (
               <Image
@@ -886,6 +1033,28 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontWeight: '500',
   },
+  mediaImagePress: {
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+    overflow: 'hidden',
+  },
+  deleteBtn: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#FEF3F2',
+    borderWidth: 1,
+    borderColor: '#FECDCA',
+    minHeight: 30,
+    justifyContent: 'center',
+  },
+  deleteBtnText: {
+    color: '#B42318',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   emptyCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 14,
@@ -1045,6 +1214,24 @@ const styles = StyleSheet.create({
   photoPreviewTitleCol: { flex: 1, paddingRight: 12 },
   photoPreviewTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
   photoPreviewKind: { color: 'rgba(255,255,255,0.75)', fontSize: 13, marginTop: 4, fontWeight: '500' },
+  photoPreviewActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  previewDeleteBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(180, 35, 24, 0.92)',
+    minWidth: 64,
+    alignItems: 'center',
+  },
+  previewDeleteBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
   photoPreviewClose: { color: '#FFFFFF', fontSize: 22, fontWeight: '600', padding: 4 },
   photoPreviewImage: {
     width: '100%',

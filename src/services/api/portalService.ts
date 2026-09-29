@@ -783,6 +783,22 @@ export const portalService = {
     }
   },
 
+  async deletePhotoMedia(photoId: number | string): Promise<void> {
+    if (env.useMockAuth) {
+      return;
+    }
+    try {
+      const response = await httpClient.delete<{ success?: boolean; message?: string }>(
+        env.mobilePhotos.delete(photoId),
+      );
+      if (response.data.success === false) {
+        throw new Error(response.data.message || 'Unable to delete photo.');
+      }
+    } catch (error) {
+      throw getError(error, 'Unable to delete photo.');
+    }
+  },
+
   async getSchedule(): Promise<ScheduleApiPayload> {
     if (env.useMockAuth) {
       return mockSchedule();
@@ -904,6 +920,7 @@ export const portalService = {
           request_type: payload.request_type,
           description: payload.description,
           status: 'Pending',
+          source: 'client',
         });
 
         return {
@@ -931,6 +948,7 @@ export const portalService = {
           request_type: payload.request_type,
           description: payload.description,
           status: 'Pending',
+          source: 'client',
         },
       );
 

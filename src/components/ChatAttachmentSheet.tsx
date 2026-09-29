@@ -10,6 +10,13 @@ type Props = {
   visible: boolean;
   onClose: () => void;
   onSelect: (choice: ChatAttachmentChoice) => void;
+  /** Defaults match chat copy. */
+  title?: string;
+  subtitle?: string;
+  photoTitle?: string;
+  photoSubtitle?: string;
+  documentTitle?: string;
+  documentSubtitle?: string;
 };
 
 type Step = 'root' | 'photo';
@@ -82,7 +89,17 @@ function LibraryIcon(): React.JSX.Element {
   );
 }
 
-export function ChatAttachmentSheet({ visible, onClose, onSelect }: Props): React.JSX.Element {
+export function ChatAttachmentSheet({
+  visible,
+  onClose,
+  onSelect,
+  title = 'Add attachment',
+  subtitle = 'Share a photo or document in this conversation.',
+  photoTitle = 'Add photo',
+  photoSubtitle = 'Choose how you want to add a photo.',
+  documentTitle = 'Document',
+  documentSubtitle = 'Upload a PDF or other file (max 10MB)',
+}: Props): React.JSX.Element {
   const [step, setStep] = useState<Step>('root');
 
   useEffect(() => {
@@ -120,8 +137,8 @@ export function ChatAttachmentSheet({ visible, onClose, onSelect }: Props): Reac
 
             {step === 'root' ? (
               <>
-                <Text style={styles.heading}>Add attachment</Text>
-                <Text style={styles.subheading}>Share a photo or document in this conversation.</Text>
+                <Text style={styles.heading}>{title}</Text>
+                <Text style={styles.subheading}>{subtitle}</Text>
 
                 <View style={styles.actions}>
                   <Pressable
@@ -145,16 +162,16 @@ export function ChatAttachmentSheet({ visible, onClose, onSelect }: Props): Reac
                   >
                     <DocumentIcon />
                     <View style={styles.actionTextCol}>
-                      <Text style={styles.actionTitle}>Document</Text>
-                      <Text style={styles.actionSubtitle}>Upload a PDF or other file (max 10MB)</Text>
+                      <Text style={styles.actionTitle}>{documentTitle}</Text>
+                      <Text style={styles.actionSubtitle}>{documentSubtitle}</Text>
                     </View>
                   </Pressable>
                 </View>
               </>
             ) : (
               <>
-                <Text style={styles.heading}>Add photo</Text>
-                <Text style={styles.subheading}>Choose how you want to add a photo.</Text>
+                <Text style={styles.heading}>{photoTitle}</Text>
+                <Text style={styles.subheading}>{photoSubtitle}</Text>
 
                 <View style={styles.actions}>
                   <Pressable

@@ -25,6 +25,8 @@ import { SearchResultsEmpty } from '../../components/SearchResultsEmpty';
 import { ListFilterSheet } from '../../components/ListFilterSheet';
 import { NotificationBellPressable } from '../../components/NotificationBellPressable';
 import { PortalProfileHeaderButton } from '../../components/PortalProfileHeaderButton';
+import { ChatAttachmentSheet, type ChatAttachmentChoice } from '../../components/ChatAttachmentSheet';
+import { captureImageWithCamera, pickImageFromLibrary } from '../../utils/imageSource';
 import { DOCUMENT_TYPE_OPTIONS, STANDARD_SORT_OPTIONS } from '../../constants/listFilterPresets';
 import type { SortOption } from '../../types/listFilters';
 import { DEFAULT_SORT } from '../../types/listFilters';
@@ -162,6 +164,7 @@ export function DocumentsScreen(): React.JSX.Element {
   const [sortBy, setSortBy] = useState<SortOption>(DEFAULT_SORT);
   const [filterOpen, setFilterOpen] = useState(false);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [sourceSheetOpen, setSourceSheetOpen] = useState(false);
   const [pickedUri, setPickedUri] = useState<string | null>(null);
   const [pickedName, setPickedName] = useState('');
   const [pickedType, setPickedType] = useState<string | null>(null);
@@ -202,7 +205,7 @@ export function DocumentsScreen(): React.JSX.Element {
     setPickedSize(null);
   }, []);
 
-  const onChooseFile = useCallback(async () => {
+  const pickDocumentFile = useCallback(async () => {
     try {
       const [file] = await pick({
         type: [types.pdf, types.doc, types.docx, types.images, types.plainText, types.zip],
@@ -252,6 +255,33 @@ export function DocumentsScreen(): React.JSX.Element {
       }
       toastAlert('Documents', e instanceof Error ? e.message : 'Could not pick a file.');
     }
+  }, []);
+
+  const onSelectUploadSource = useCallback(
+    async (choice: ChatAttachmentChoice) => {
+      try {
+        if (choice === 'camera' || choice === 'library') {
+          const selected =
+            choice === 'camera' ? await captureImageWithCamera() : await pickImageFromLibrary();
+          if (!selected) {
+            return;
+          }
+          setPickedUri(selected.uri);
+          setPickedName(selected.name);
+          setPickedType(selected.type);
+          setPickedSize(null);
+          return;
+        }
+        await pickDocumentFile();
+      } catch (e) {
+        toastAlert('Documents', e instanceof Error ? e.message : 'Could not pick a file.');
+      }
+    },
+    [pickDocumentFile],
+  );
+
+  const onChooseFile = useCallback(() => {
+    setSourceSheetOpen(true);
   }, []);
 
   const onSubmitUpload = useCallback(async () => {
@@ -612,7 +642,7 @@ export function DocumentsScreen(): React.JSX.Element {
                 {pickedSize != null ? ` · ${formatFileSize(pickedSize)}` : ''}
               </Text>
             ) : (
-              <Text style={styles.fieldHint}>PDF, Word, images, text, or zip</Text>
+              <Text style={styles.fieldHint}>Photo, PDF, Word, text, or zip</Text>
             )}
 
             <Text style={styles.fieldLabel}>Display name (optional)</Text>
@@ -642,6 +672,17 @@ export function DocumentsScreen(): React.JSX.Element {
           </View>
         </View>
       </Modal>
+      <ChatAttachmentSheet
+        visible={sourceSheetOpen}
+        onClose={() => setSourceSheetOpen(false)}
+        onSelect={(choice) => {
+          onSelectUploadSource(choice).catch(() => undefined);
+        }}
+        title="Add document"
+        subtitle="Take a photo, choose from your library, or browse files."
+        documentTitle="Browse files"
+        documentSubtitle="PDF, Word, images, text, or zip from Files"
+      />
       <ListFilterSheet
         visible={filterOpen}
         onClose={() => setFilterOpen(false)}

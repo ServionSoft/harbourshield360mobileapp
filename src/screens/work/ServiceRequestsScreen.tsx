@@ -28,6 +28,8 @@ import { PortalSearchBar } from '../../components/PortalSearchBar';
 import { ListFilterSheet } from '../../components/ListFilterSheet';
 import { NotificationBellPressable } from '../../components/NotificationBellPressable';
 import { PortalProfileHeaderButton } from '../../components/PortalProfileHeaderButton';
+import { ChatAttachmentSheet, type ChatAttachmentChoice } from '../../components/ChatAttachmentSheet';
+import { captureImageWithCamera, pickImageFromLibrary } from '../../utils/imageSource';
 import { SERVICE_REQUEST_STATUS_OPTIONS, STANDARD_SORT_OPTIONS } from '../../constants/listFilterPresets';
 import type { SortOption } from '../../types/listFilters';
 import { DEFAULT_SORT } from '../../types/listFilters';
@@ -102,6 +104,7 @@ export function ServiceRequestsScreen(): React.JSX.Element {
   const [typeMenuAnchor, setTypeMenuAnchor] = useState<MenuAnchor | null>(null);
   const typeButtonRef = useRef<View>(null);
   const [requestModalOpen, setRequestModalOpen] = useState(false);
+  const [sourceSheetOpen, setSourceSheetOpen] = useState(false);
   const [detailRequest, setDetailRequest] = useState<ServiceRequestJob | null>(null);
   const [openingAttachmentKey, setOpeningAttachmentKey] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -206,7 +209,7 @@ export function ServiceRequestsScreen(): React.JSX.Element {
     });
   }, [closeTypeMenu, typeMenuOpen]);
 
-  const onAttachFile = useCallback(async () => {
+  const pickDocumentAttachment = useCallback(async () => {
     try {
       const [file] = await pick({
         type: [types.images, types.pdf],
@@ -262,6 +265,32 @@ export function ServiceRequestsScreen(): React.JSX.Element {
       }
       toastAlert('Service Requests', e instanceof Error ? e.message : 'Could not pick a file.');
     }
+  }, []);
+
+  const onSelectAttachmentSource = useCallback(
+    async (choice: ChatAttachmentChoice) => {
+      try {
+        if (choice === 'camera' || choice === 'library') {
+          const selected =
+            choice === 'camera' ? await captureImageWithCamera() : await pickImageFromLibrary();
+          if (!selected) {
+            return;
+          }
+          setAttachmentUri(selected.uri);
+          setAttachmentName(selected.name);
+          setAttachmentType(selected.type);
+          return;
+        }
+        await pickDocumentAttachment();
+      } catch (e) {
+        toastAlert('Service Requests', e instanceof Error ? e.message : 'Could not pick a file.');
+      }
+    },
+    [pickDocumentAttachment],
+  );
+
+  const onAttachFile = useCallback(() => {
+    setSourceSheetOpen(true);
   }, []);
 
   const onSubmitRequest = useCallback(async () => {
@@ -619,6 +648,18 @@ export function ServiceRequestsScreen(): React.JSX.Element {
           ) : null}
         </View>
       </Modal>
+
+      <ChatAttachmentSheet
+        visible={sourceSheetOpen}
+        onClose={() => setSourceSheetOpen(false)}
+        onSelect={(choice) => {
+          onSelectAttachmentSource(choice).catch(() => undefined);
+        }}
+        title="Add attachment"
+        subtitle="Take a photo, choose from your library, or browse files."
+        documentTitle="Browse files"
+        documentSubtitle="PDF or image from Files (max 20MB)"
+      />
 
       <ListFilterSheet
         visible={filterOpen}

@@ -17,10 +17,7 @@ const EVENT_TYPES = [
   'Other',
 ] as const;
 
-const EVENT_STATUSES = ['Confirmed', 'Pending', 'Scheduled', 'In Progress', 'Completed', 'Cancelled'] as const;
-
 export type EventTypeOption = (typeof EVENT_TYPES)[number];
-export type EventStatusOption = (typeof EVENT_STATUSES)[number];
 
 function stripTime(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -42,16 +39,6 @@ function jobDisplayName(job: CustomerJob): string {
     return `Project #${job.id}`;
   }
   return 'Project';
-}
-
-function pickJobString(job: CustomerJob, keys: string[]): string {
-  for (const k of keys) {
-    const v = job[k];
-    if (typeof v === 'string' && v.trim()) {
-      return v.trim();
-    }
-  }
-  return '';
 }
 
 function combineDateTime(dateYmd: string, timeHm: string): Date | null {
@@ -80,7 +67,7 @@ function combineDateTime(dateYmd: string, timeHm: string): Date | null {
   return Number.isNaN(dt.getTime()) ? null : dt;
 }
 
-type OpenSelect = null | 'type' | 'job' | 'status';
+type OpenSelect = null | 'type' | 'job';
 
 type MenuAnchor = {
   top: number;
@@ -102,13 +89,8 @@ export function AddEventModal({ visible, calendarDate, onClose, onCreated }: Add
   const [eventType, setEventType] = useState<EventTypeOption>('Inspection');
   const [eventName, setEventName] = useState('');
   const [selectedJob, setSelectedJob] = useState<CustomerJob | null>(null);
-  const [eventStatus, setEventStatus] = useState<EventStatusOption>('Confirmed');
   const [dateYmd, setDateYmd] = useState(() => formatLocalYmd(stripTime(new Date())));
   const [timeHm, setTimeHm] = useState('09:00');
-  const [customerName, setCustomerName] = useState('');
-  const [customerAddress, setCustomerAddress] = useState('');
-  const [customerZip, setCustomerZip] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
 
   const [openSelect, setOpenSelect] = useState<OpenSelect>(null);
   const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
@@ -116,40 +98,21 @@ export function AddEventModal({ visible, calendarDate, onClose, onCreated }: Add
 
   const typeButtonRef = useRef<View>(null);
   const jobButtonRef = useRef<View>(null);
-  const statusButtonRef = useRef<View>(null);
 
   const closeSelects = useCallback(() => {
     setOpenSelect(null);
     setMenuAnchor(null);
   }, []);
 
-  const applyJobAutofill = useCallback((job: CustomerJob | null) => {
-    if (!job) {
-      return;
-    }
-    setCustomerName(pickJobString(job, ['customer_name', 'customerName', 'client_name', 'name']));
-    setCustomerAddress(pickJobString(job, ['customer_address', 'address', 'project_address', 'street']));
-    setCustomerZip(pickJobString(job, ['customer_zip', 'zip', 'zip_code', 'postal_code']));
-    setCustomerPhone(pickJobString(job, ['customer_phone', 'phone', 'phone_number']));
+  const resetForm = useCallback((seedDate: Date) => {
+    setEventType('Inspection');
+    setEventName('');
+    setSelectedJob(null);
+    setDateYmd(formatLocalYmd(stripTime(seedDate)));
+    setTimeHm('09:00');
+    setOpenSelect(null);
+    setMenuAnchor(null);
   }, []);
-
-  const resetForm = useCallback(
-    (seedDate: Date) => {
-      setEventType('Inspection');
-      setEventName('');
-      setSelectedJob(null);
-      setEventStatus('Confirmed');
-      setDateYmd(formatLocalYmd(stripTime(seedDate)));
-      setTimeHm('09:00');
-      setCustomerName('');
-      setCustomerAddress('');
-      setCustomerZip('');
-      setCustomerPhone('');
-      setOpenSelect(null);
-      setMenuAnchor(null);
-    },
-    [],
-  );
 
   useEffect(() => {
     if (!visible) {
@@ -185,21 +148,11 @@ export function AddEventModal({ visible, calendarDate, onClose, onCreated }: Add
     };
   }, [visible]);
 
-  const onPickJob = useCallback(
-    (job: CustomerJob | null) => {
-      setSelectedJob(job);
-      if (job) {
-        applyJobAutofill(job);
-      } else {
-        setCustomerName('');
-        setCustomerAddress('');
-        setCustomerZip('');
-        setCustomerPhone('');
-      }
-      setOpenSelect(null);
-    },
-    [applyJobAutofill],
-  );
+  const onPickJob = useCallback((job: CustomerJob | null) => {
+    setSelectedJob(job);
+    setOpenSelect(null);
+    setMenuAnchor(null);
+  }, []);
 
   const onSubmit = useCallback(async () => {
     const title = eventName.trim();
@@ -221,16 +174,11 @@ export function AddEventModal({ visible, calendarDate, onClose, onCreated }: Add
     const body: Record<string, unknown> = {
       title,
       type: eventType,
-      status: eventStatus,
       start_date_time: startAt.toISOString(),
       end_date_time: endAt.toISOString(),
-      customer_name: customerName.trim() || undefined,
-      customer_address: customerAddress.trim() || undefined,
-      customer_zip: customerZip.trim() || undefined,
-      customer_phone: customerPhone.trim() || undefined,
+      project_id: selectedJob.id,
+      priority: 'Medium',
     };
-    body.project_id = selectedJob.id;
-    body.priority = 'Medium';
 
     try {
       setSubmitting(true);
@@ -246,20 +194,7 @@ export function AddEventModal({ visible, calendarDate, onClose, onCreated }: Add
     } finally {
       setSubmitting(false);
     }
-  }, [
-    customerAddress,
-    customerName,
-    customerPhone,
-    customerZip,
-    dateYmd,
-    eventName,
-    eventStatus,
-    eventType,
-    onClose,
-    onCreated,
-    selectedJob,
-    timeHm,
-  ]);
+  }, [dateYmd, eventName, eventType, onClose, onCreated, selectedJob, timeHm]);
 
   const openDropdown = useCallback(
     (key: Exclude<OpenSelect, null>, anchorRef: React.RefObject<View | null>) => {
@@ -329,22 +264,7 @@ export function AddEventModal({ visible, calendarDate, onClose, onCreated }: Add
       );
     }
 
-    return (
-      <ScrollView style={styles.selectMenuScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-        {EVENT_STATUSES.map((s) => (
-          <Pressable
-            key={s}
-            style={styles.selectItem}
-            onPress={() => {
-              setEventStatus(s);
-              closeSelects();
-            }}
-          >
-            <Text style={styles.selectItemText}>{s}</Text>
-          </Pressable>
-        ))}
-      </ScrollView>
-    );
+    return null;
   };
 
   return (
@@ -383,21 +303,13 @@ export function AddEventModal({ visible, calendarDate, onClose, onCreated }: Add
               style={styles.fieldInput}
             />
 
-            <Text style={styles.fieldLabel}>Select job</Text>
+            <Text style={styles.fieldLabel}>Select job *</Text>
             <View ref={jobButtonRef} collapsable={false} style={styles.selectWrap}>
               <Pressable style={styles.selectButton} onPress={() => openDropdown('job', jobButtonRef)}>
                 <Text style={[styles.selectText, !selectedJob && styles.selectPlaceholder]}>
                   {selectedJob ? jobDisplayName(selectedJob) : 'Choose job'}
                 </Text>
                 <Text style={styles.selectChevron}>{openSelect === 'job' ? '▴' : '▾'}</Text>
-              </Pressable>
-            </View>
-
-            <Text style={styles.fieldLabel}>Select status *</Text>
-            <View ref={statusButtonRef} collapsable={false} style={styles.selectWrap}>
-              <Pressable style={styles.selectButton} onPress={() => openDropdown('status', statusButtonRef)}>
-                <Text style={styles.selectText}>{eventStatus}</Text>
-                <Text style={styles.selectChevron}>{openSelect === 'status' ? '▴' : '▾'}</Text>
               </Pressable>
             </View>
 
@@ -421,47 +333,6 @@ export function AddEventModal({ visible, calendarDate, onClose, onCreated }: Add
                 autoCapitalize="none"
               />
             </View>
-
-            <Text style={styles.fieldLabel}>Customer name</Text>
-            <Text style={styles.fieldHint}>Select a project to auto-fill</Text>
-            <TextInput
-              value={customerName}
-              onChangeText={setCustomerName}
-              placeholder="Customer name"
-              placeholderTextColor="#8A93A7"
-              style={styles.fieldInput}
-            />
-
-            <Text style={styles.fieldLabel}>Customer address</Text>
-            <Text style={styles.fieldHint}>Select a project to auto-fill</Text>
-            <TextInput
-              value={customerAddress}
-              onChangeText={setCustomerAddress}
-              placeholder="Street, city, state"
-              placeholderTextColor="#8A93A7"
-              style={styles.fieldInput}
-            />
-
-            <Text style={styles.fieldLabel}>Customer ZIP code</Text>
-            <Text style={styles.fieldHint}>Select a project to auto-fill</Text>
-            <TextInput
-              value={customerZip}
-              onChangeText={setCustomerZip}
-              placeholder="ZIP"
-              placeholderTextColor="#8A93A7"
-              style={styles.fieldInput}
-              keyboardType="number-pad"
-            />
-
-            <Text style={styles.fieldLabel}>Customer phone</Text>
-            <TextInput
-              value={customerPhone}
-              onChangeText={setCustomerPhone}
-              placeholder="Phone number"
-              placeholderTextColor="#8A93A7"
-              style={styles.fieldInput}
-              keyboardType="phone-pad"
-            />
 
             <Pressable
               style={({ pressed }) => [styles.submitBtn, (pressed || submitting) && styles.dim]}

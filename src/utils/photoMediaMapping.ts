@@ -2,11 +2,16 @@ import { env } from '../config/env';
 import type { CustomerJob } from '../types/portal';
 import type { PhotoMediaItem, PhotoMediaListResponse } from '../types/photoMedia';
 
+export type JobMediaPhoto = {
+  id: string;
+  uri: string;
+};
+
 export type JobMedia = {
   id: string;
   jobName: string;
-  before: string[];
-  after: string[];
+  before: JobMediaPhoto[];
+  after: JobMediaPhoto[];
 };
 
 export function resolvePhotoDisplayUrl(url?: string | null): string {
@@ -54,10 +59,13 @@ export function buildJobsMediaFromPhotos(
         });
       }
       const url = photoItemDisplayUrl(pic);
-      if (!url) {
+      if (!url || pic.id == null || String(pic.id) === '') {
         continue;
       }
-      byId.get(projectId)![kind].push(url);
+      byId.get(projectId)![kind].push({
+        id: String(pic.id),
+        uri: url,
+      });
     }
   };
 
@@ -81,12 +89,22 @@ export function mergeStormbuddiUploads(
   jobId: string,
   jobName: string,
   kind: 'before' | 'after',
-  files: Array<{ url?: string | null }>,
+  files: Array<{ id?: number | string | null; url?: string | null }>,
 ): JobMedia[] {
-  const urls = files
-    .map((file) => resolvePhotoDisplayUrl(file.url))
-    .filter((url) => url.length > 0);
-  if (urls.length === 0) {
+  const photos = files
+    .map((file, index) => {
+      const uri = resolvePhotoDisplayUrl(file.url);
+      if (!uri) {
+        return null;
+      }
+      return {
+        id: file.id != null && String(file.id) !== '' ? String(file.id) : `temp-${jobId}-${Date.now()}-${index}`,
+        uri,
+      };
+    })
+    .filter((photo): photo is JobMediaPhoto => photo != null);
+
+  if (photos.length === 0) {
     return prev;
   }
 
@@ -94,7 +112,7 @@ export function mergeStormbuddiUploads(
   const existing = prev.find((job) => job.id === jobId);
   if (existing) {
     return prev.map((job) =>
-      job.id === jobId ? { ...job, [listKey]: [...job[listKey], ...urls] } : job,
+      job.id === jobId ? { ...job, [listKey]: [...job[listKey], ...photos] } : job,
     );
   }
 
@@ -103,8 +121,8 @@ export function mergeStormbuddiUploads(
     {
       id: jobId,
       jobName,
-      before: kind === 'before' ? urls : [],
-      after: kind === 'after' ? urls : [],
+      before: kind === 'before' ? photos : [],
+      after: kind === 'after' ? photos : [],
     },
   ];
 }
